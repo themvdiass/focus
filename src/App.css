@@ -1334,3 +1334,12 @@ nav {
     border-radius: 16px 16px 0 0;
   }
 }
+.goal-card[draggable="true"] {
+  cursor: grab;
+}
+.goal-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+.goal-card.is-dragging {
+  opacity: 0.55;
+}

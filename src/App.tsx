@@ -135,6 +135,7 @@ function App() {
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [showTransactions, setShowTransactions] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("Todas");
+  const [draggingGoalId, setDraggingGoalId] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState(
     () => Number(localStorage.getItem("focus-last-updated")) || Date.now(),
   );
@@ -361,6 +362,21 @@ function App() {
     setLastUpdated(Date.now());
     setEditingGoal(null);
     setModal(null);
+  };
+
+  const reorderGoals = (targetGoalId: number) => {
+    if (draggingGoalId === null || draggingGoalId === targetGoalId) return;
+    setGoals((current) => {
+      const sourceIndex = current.findIndex((goal) => goal.id === draggingGoalId);
+      const targetIndex = current.findIndex((goal) => goal.id === targetGoalId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const reordered = [...current];
+      const [movedGoal] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, movedGoal);
+      return reordered;
+    });
+    setLastUpdated(Date.now());
+    setDraggingGoalId(null);
   };
 
   const saveGoal = async (event: FormEvent<HTMLFormElement>) => {
@@ -721,7 +737,15 @@ function App() {
                   Math.round((goalBalance / goal.target) * 100),
                 );
                 return (
-                  <article className="goal-card" key={goal.id}>
+                  <article
+                    className={`goal-card ${draggingGoalId === goal.id ? "is-dragging" : ""}`}
+                    key={goal.id}
+                    draggable
+                    onDragStart={() => setDraggingGoalId(goal.id)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => reorderGoals(goal.id)}
+                    onDragEnd={() => setDraggingGoalId(null)}
+                  >
                     <div className="goal-top">
                       <span className={`goal-symbol ${goal.color}`}>
                         {goal.image ? (
