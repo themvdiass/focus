@@ -135,6 +135,10 @@ function App() {
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [showTransactions, setShowTransactions] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("Todas");
+  const [lastUpdated, setLastUpdated] = useState(
+    () => Number(localStorage.getItem("focus-last-updated")) || Date.now(),
+  );
+  const [clock, setClock] = useState(Date.now());
 
   useEffect(
     () =>
@@ -152,6 +156,31 @@ function App() {
     () => localStorage.setItem("cofre-profile-v2", JSON.stringify(profile)),
     [profile],
   );
+  useEffect(() => {
+    localStorage.setItem("focus-last-updated", String(lastUpdated));
+  }, [lastUpdated]);
+  useEffect(() => {
+    const interval = window.setInterval(() => setClock(Date.now()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const updatedLabel = useMemo(() => {
+    const elapsedMinutes = Math.max(
+      0,
+      Math.floor((clock - lastUpdated) / 60000),
+    );
+    if (elapsedMinutes < 1) return "Atualizado agora";
+    if (elapsedMinutes < 60) return `Atualizado há ${elapsedMinutes} min`;
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    return `Atualizado há ${elapsedHours} ${elapsedHours === 1 ? "hora" : "horas"}`;
+  }, [clock, lastUpdated]);
+
+  const currentTime = () =>
+    new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date());
 
   const income = transactions
     .filter((item) => item.type === "income")
@@ -281,11 +310,12 @@ function App() {
         type,
         icon: image || (String(form.get("categoryIcon")) as CategoryIcon),
         image,
-        date: "Agora",
+        date: `Hoje, ${currentTime()}`,
         createdAt: Date.now(),
       },
       ...current,
     ]);
+    setLastUpdated(Date.now());
     setModal(null);
   };
 
@@ -314,6 +344,7 @@ function App() {
           : item,
       ),
     );
+    setLastUpdated(Date.now());
     setEditingTransaction(null);
     setModal(null);
   };
@@ -322,10 +353,12 @@ function App() {
     setTransactions((current) =>
       current.filter((item) => item.id !== transaction.id),
     );
+    setLastUpdated(Date.now());
   };
 
   const deleteGoal = (goal: Goal) => {
     setGoals((current) => current.filter((item) => item.id !== goal.id));
+    setLastUpdated(Date.now());
     setEditingGoal(null);
     setModal(null);
   };
@@ -368,6 +401,7 @@ function App() {
         },
       ]);
     }
+    setLastUpdated(Date.now());
     setEditingGoal(null);
     setModal(null);
   };
@@ -412,7 +446,7 @@ function App() {
                 <div className="balance-heading">
                   <span>Saldo disponível</span>
                   <span className="balance-status">
-                    <i /> Atualizado agora
+                    <i /> {updatedLabel}
                   </span>
                 </div>
                 <div className="balance-value">{formatCurrency(balance)}</div>
