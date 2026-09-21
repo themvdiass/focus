@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CircleUserRound,
   Gift,
+  GripVertical,
   Heart,
   House,
   Image as ImageIcon,
@@ -20,6 +21,7 @@ import {
   Pencil,
   Plane,
   Plus,
+  SquarePen,
   ShieldCheck,
   ShoppingBag,
   Tag,
@@ -135,7 +137,19 @@ function App() {
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [showTransactions, setShowTransactions] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("Todas");
+  const [goalDragMode, setGoalDragMode] = useState(false);
   const [draggingGoalId, setDraggingGoalId] = useState<number | null>(null);
+  const [dragOverGoalId, setDragOverGoalId] = useState<number | null>(null);
+  const [dragTargetPosition, setDragTargetPosition] = useState<
+    "before" | "after" | null
+  >(null);
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
+  const [dragWidth, setDragWidth] = useState(0);
+  const dragStateRef = useRef<{
+    id: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
   const [lastUpdated, setLastUpdated] = useState(
     () => Number(localStorage.getItem("focus-last-updated")) || Date.now(),
   );
@@ -364,19 +378,247 @@ function App() {
     setModal(null);
   };
 
-  const reorderGoals = (targetGoalId: number) => {
-    if (draggingGoalId === null || draggingGoalId === targetGoalId) return;
+  const reorderGoals = (
+    sourceGoalId: number,
+    targetGoalId: number,
+    position: "before" | "after" = "before",
+  ) => {
+    if (sourceGoalId === null || sourceGoalId === targetGoalId) return;
     setGoals((current) => {
-      const sourceIndex = current.findIndex((goal) => goal.id === draggingGoalId);
+      const sourceIndex = current.findIndex((goal) => goal.id === sourceGoalId);
       const targetIndex = current.findIndex((goal) => goal.id === targetGoalId);
       if (sourceIndex < 0 || targetIndex < 0) return current;
       const reordered = [...current];
       const [movedGoal] = reordered.splice(sourceIndex, 1);
-      reordered.splice(targetIndex, 0, movedGoal);
+      const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+      reordered.splice(insertIndex, 0, movedGoal);
       return reordered;
     });
     setLastUpdated(Date.now());
-    setDraggingGoalId(null);
+  };
+
+  const startGoalDrag = (
+    goalId: number,
+    clientX: number,
+    clientY: number,
+    card: HTMLElement,
+  ) => {
+    const rect = card.getBoundingClientRect();
+    dragStateRef.current = {
+      id: goalId,
+      offsetX: clientX - rect.left,
+      offsetY: clientY - rect.top,
+    };
+    setDragPosition({ x: rect.left, y: rect.top });
+    setDragWidth(rect.width);
+    setDraggingGoalId(goalId);
+    setDragOverGoalId(null);
+    setDragTargetPosition(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  useEffect(() => {
+    const preventGoalTextSelection = (event: Event) => {
+      event.preventDefault();
+    };
+    const clearGoalTextSelection = () => {
+      const selection = window.getSelection();
+      if (selection?.rangeCount) selection.removeAllRanges();
+    };
+
+    clearGoalTextSelection();
+    document.addEventListener(
+      "selectstart",
+      preventGoalTextSelection,
+      true,
+    );
+    document.addEventListener("selectionchange", clearGoalTextSelection);
+    return () => {
+      document.removeEventListener(
+        "selectstart",
+        preventGoalTextSelection,
+        true,
+      );
+      document.removeEventListener("selectionchange", clearGoalTextSelection);
+    };
+  }, []);
+
+  const applyDragEdgeScroll = (clientY: number) => {
+    const edgeThreshold = 90;
+    const maxScrollStep = 18;
+    const viewportHeight = window.innerHeight;
+
+    if (clientY < edgeThreshold) {
+      const distanceFromTop = edgeThreshold - clientY;
+      const scrollStep = Math.min(
+        maxScrollStep,
+        Math.max(4, (distanceFromTop / edgeThreshold) * maxScrollStep),
+      );
+
+      if (window.scrollY > 0) {
+        window.scrollBy({ top: -scrollStep, behavior: "auto" });
+      }
+    }
+
+    if (clientY > viewportHeight - edgeThreshold) {
+      const distanceFromBottom = clientY - (viewportHeight - edgeThreshold);
+      const scrollStep = Math.min(
+        maxScrollStep,
+        Math.max(4, (distanceFromBottom / edgeThreshold) * maxScrollStep),
+      );
+
+      if (window.innerHeight + window.scrollY < document.body.scrollHeight) {
+        window.scrollBy({ top: scrollStep, behavior: "auto" });
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (draggingGoalId === null) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!dragStateRef.current) return;
+      applyDragEdgeScroll(event.clientY);
+
+      const { offsetX, offsetY } = dragStateRef.current;
+      setDragPosition({
+        x: event.clientX - offsetX,
+        y: event.clientY - offsetY,
+      });
+
+      const cards = Array.from(
+        document.querySelectorAll(".goal-card[data-goal-id]"),
+      ) as HTMLElement[];
+      const filteredCards = cards.filter(
+        (card) => Number(card.dataset.goalId) !== draggingGoalId,
+      );
+
+      let nextGoalId = dragOverGoalId;
+      let nextPosition = dragTargetPosition;
+
+      for (const card of filteredCards) {
+        const rect = card.getBoundingClientRect();
+        const isAbove = event.clientY <= rect.top + rect.height * 0.25;
+        const isBelow = event.clientY >= rect.bottom - rect.height * 0.25;
+        const isInside = event.clientY >= rect.top && event.clientY <= rect.bottom;
+
+        if (isAbove || (isInside && isBelow)) {
+          nextGoalId = Number(card.dataset.goalId);
+          nextPosition = isAbove ? "before" : "after";
+          break;
+        }
+      }
+
+      if (nextGoalId === null) {
+        const firstCard = filteredCards[0];
+        const lastCard = filteredCards[filteredCards.length - 1];
+
+        if (event.clientY < (firstCard?.getBoundingClientRect().top ?? Infinity)) {
+          nextGoalId = Number(firstCard?.dataset.goalId ?? null);
+          nextPosition = "before";
+        } else if (lastCard && event.clientY > lastCard.getBoundingClientRect().bottom) {
+          nextGoalId = Number(lastCard.dataset.goalId);
+          nextPosition = "after";
+        }
+      }
+
+      if (nextGoalId !== dragOverGoalId || nextPosition !== dragTargetPosition) {
+        setDragOverGoalId(nextGoalId);
+        setDragTargetPosition(nextPosition);
+      }
+    };
+
+    const handlePointerUp = () => {
+      if (draggingGoalId !== null && dragOverGoalId !== null && dragTargetPosition) {
+        reorderGoals(draggingGoalId, dragOverGoalId, dragTargetPosition);
+      }
+      dragStateRef.current = null;
+      setDraggingGoalId(null);
+      setDragOverGoalId(null);
+      setDragTargetPosition(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [draggingGoalId, dragOverGoalId, dragTargetPosition]);
+
+  const renderGoalCardContent = (goal: Goal) => {
+    const goalBalance = Math.max(0, balance);
+    const percent = Math.min(100, Math.round((goalBalance / goal.target) * 100));
+
+    return (
+      <>
+        <div className="goal-top">
+          <span className={`goal-symbol ${goal.color}`}>
+            {goal.image ? (
+              <img className="goal-image" src={goal.image} alt="" />
+            ) : (
+              <GoalIconView icon={goal.icon} />
+            )}
+          </span>
+          <div className="goal-header-actions">
+            <button
+              type="button"
+              className="more-button"
+              onClick={(event) => {
+                if (goalDragMode) return;
+                event.stopPropagation();
+                setEditingGoal(goal);
+                setModal("goal-edit");
+              }}
+              onPointerDown={(event) => {
+                if (!goalDragMode) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const card = event.currentTarget.closest(
+                  ".goal-card",
+                ) as HTMLElement | null;
+                if (card) {
+                  startGoalDrag(
+                    goal.id,
+                    event.clientX,
+                    event.clientY,
+                    card,
+                  );
+                }
+              }}
+              style={{ touchAction: goalDragMode ? "none" : "auto" }}
+              aria-label={
+                goalDragMode ? `Arrastar ${goal.name}` : `Editar ${goal.name}`
+              }
+            >
+              {goalDragMode ? <GripVertical size={18} /> : "•••"}
+            </button>
+          </div>
+        </div>
+        <div className="goal-card-text-shield" aria-hidden="true" />
+        <h3>{goal.name}</h3>
+        <div className="progress-meta">
+          <span>{formatCurrency(goalBalance)}</span>
+          <span>
+            {formatCurrency(goal.target)}
+          </span>
+        </div>
+        <div className="progress-track">
+          <div
+            className={`progress-fill ${goal.color}`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <div className="goal-bottom">
+          <strong>{percent}%</strong>
+          <span>
+            {percent === 100
+              ? "Objetivo alcançado"
+              : `${formatCurrency(Math.max(0, goal.target - goalBalance))} restantes`}
+          </span>
+        </div>
+      </>
+    );
   };
 
   const saveGoal = async (event: FormEvent<HTMLFormElement>) => {
@@ -452,6 +694,18 @@ function App() {
                 <span className="wave">✦</span>
               </h1>
             </div>
+            <button
+              type="button"
+              className="home-profile-avatar"
+              onClick={() => navigateTo("profile")}
+              aria-label="Abrir perfil"
+            >
+              {profile.photo ? (
+                <img src={profile.photo} alt="" />
+              ) : (
+                <CircleUserRound size={22} />
+              )}
+            </button>
           </header>
         )}
 
@@ -727,70 +981,87 @@ function App() {
                   <span className="count-badge">{goals.length}</span>
                 </h2>
                 <p>Acompanhe o progresso do que importa para você.</p>
+                <div
+                  className="goal-text-shield"
+                  aria-hidden="true"
+                  onContextMenu={(event) => event.preventDefault()}
+                  onTouchStart={() => window.getSelection()?.removeAllRanges()}
+                />
               </div>
+              <button
+                type="button"
+                className="goal-section-toggle"
+                onClick={() => {
+                  if (goalDragMode) {
+                    setDraggingGoalId(null);
+                    setDragOverGoalId(null);
+                    setDragTargetPosition(null);
+                    setGoalDragMode(false);
+                    return;
+                  }
+                  setGoalDragMode(true);
+                }}
+                aria-label={goalDragMode ? "Finalizar arraste" : "Editar ordem dos objetivos"}
+              >
+                {goalDragMode ? <Check size={18} /> : <SquarePen size={18} />}
+              </button>
             </div>
             <section className="goals-grid">
-              {goals.map((goal) => {
-                const goalBalance = Math.max(0, balance);
-                const percent = Math.min(
-                  100,
-                  Math.round((goalBalance / goal.target) * 100),
-                );
-                return (
-                  <article
-                    className={`goal-card ${draggingGoalId === goal.id ? "is-dragging" : ""}`}
-                    key={goal.id}
-                    draggable
-                    onDragStart={() => setDraggingGoalId(goal.id)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => reorderGoals(goal.id)}
-                    onDragEnd={() => setDraggingGoalId(null)}
-                  >
-                    <div className="goal-top">
-                      <span className={`goal-symbol ${goal.color}`}>
-                        {goal.image ? (
-                          <img className="goal-image" src={goal.image} alt="" />
-                        ) : (
-                          <GoalIconView icon={goal.icon} />
-                        )}
-                      </span>
-                      <button
-                        className="more-button"
-                        onClick={() => {
-                          setEditingGoal(goal);
-                          setModal("goal-edit");
-                        }}
-                        aria-label={`Editar ${goal.name}`}
-                      >
-                        •••
-                      </button>
-                    </div>
-                    <h3>{goal.name}</h3>
-                    <div className="progress-meta">
-                      <span>
-                        {formatCurrency(goalBalance)}{" "}
-                        <b className="goal-target">
-                          / {formatCurrency(goal.target)}
-                        </b>
-                      </span>
-                    </div>
-                    <div className="progress-track">
+              {(draggingGoalId === null ? goals : goals.filter((goal) => goal.id !== draggingGoalId)).map((goal) => (
+                <>
+                  {draggingGoalId !== null &&
+                    dragOverGoalId === goal.id &&
+                    dragTargetPosition === "before" && (
                       <div
-                        className={`progress-fill ${goal.color}`}
-                        style={{ width: `${percent}%` }}
+                        key={`slot-before-${goal.id}`}
+                        className="goal-drop-slot"
+                        aria-hidden="true"
                       />
-                    </div>
-                    <div className="goal-bottom">
-                      <strong>{percent}%</strong>
-                      <span>
-                        {percent === 100
-                          ? "Objetivo alcançado"
-                          : `${formatCurrency(Math.max(0, goal.target - goalBalance))} restantes`}
-                      </span>
-                    </div>
+                    )}
+                  <article
+                    key={goal.id}
+                    data-goal-id={goal.id}
+                    className={`goal-card ${draggingGoalId === goal.id ? "is-dragging" : ""} ${
+                      goalDragMode ? "goal-card-editing" : ""
+                    } ${
+                      dragOverGoalId === goal.id && dragTargetPosition
+                        ? `drop-target ${dragTargetPosition}`
+                        : ""
+                    }`}
+                    style={{
+                      touchAction:
+                        draggingGoalId === goal.id ? "none" : "pan-y",
+                    }}
+                  >
+                    {renderGoalCardContent(goal)}
                   </article>
-                );
-              })}
+                  {draggingGoalId !== null &&
+                    dragOverGoalId === goal.id &&
+                    dragTargetPosition === "after" && (
+                      <div
+                        key={`slot-after-${goal.id}`}
+                        className="goal-drop-slot"
+                        aria-hidden="true"
+                      />
+                    )}
+                </>
+              ))}
+              {draggingGoalId !== null &&
+                goals
+                  .filter((goal) => goal.id === draggingGoalId)
+                  .map((goal) => (
+                    <div
+                      key={`ghost-${goal.id}`}
+                      className="goal-card goal-card-ghost"
+                      style={{
+                        left: `${dragPosition.x}px`,
+                        top: `${dragPosition.y}px`,
+                        width: `${dragWidth}px`,
+                      }}
+                    >
+                      {renderGoalCardContent(goal)}
+                    </div>
+                  ))}
               <button
                 className="add-goal-card"
                 onClick={() => setModal("goal")}
@@ -808,9 +1079,11 @@ function App() {
         {activeTab === "profile" && !showTransactions && (
           <section className="screen-section profile-screen">
             <div className="screen-heading">
-              <span className="eyebrow">Seu espaço</span>
-              <h2>Meu perfil</h2>
-              <p>Atualize suas informações pessoais.</p>
+              <div>
+                <span className="eyebrow">Seu espaço</span>
+                <h2>Meu perfil</h2>
+                <p>Atualize suas informações pessoais.</p>
+              </div>
             </div>
             <div className="profile-edit-panel">
               <div className="profile-avatar-wrap">
@@ -866,9 +1139,11 @@ function App() {
               <ArrowLeft size={17} /> Voltar
             </button>
             <div className="screen-heading">
-              <span className="eyebrow">Acompanhe de perto</span>
-              <h2>Todas as movimentações</h2>
-              <p>Seu histórico financeiro, organizado por data.</p>
+              <div>
+                <span className="eyebrow">Acompanhe de perto</span>
+                <h2>Todas as movimentações</h2>
+                <p>Seu histórico financeiro, organizado por data.</p>
+              </div>
             </div>
             <div className="movement-summary">
               <div>

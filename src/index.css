@@ -2,7 +2,11 @@
 
 :root { font-family: 'DM Sans', sans-serif; color: #edf4f0; background: #080a0a; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: #080a0a; }
+html, body { margin: 0; min-width: 320px; min-height: 100vh; background: #080a0a; }
+html { scrollbar-width: none; -ms-overflow-style: none; }
+html::-webkit-scrollbar,
+body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+body { overflow-y: auto; }
 button, input { font: inherit; }
 input, select, textarea { font-size: 16px; }
 button { cursor: pointer; }

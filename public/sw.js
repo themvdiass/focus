@@ -1,5 +1,5 @@
 const CACHE_NAME = 'focus-shell-v2'
-const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './icon.jpg']
+const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './manifest.json', './icon.jpg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)))
