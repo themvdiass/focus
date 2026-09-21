@@ -418,6 +418,8 @@ function App() {
   };
 
   useEffect(() => {
+    if (!goalDragMode) return;
+
     const preventGoalTextSelection = (event: Event) => {
       event.preventDefault();
     };
@@ -441,7 +443,7 @@ function App() {
       );
       document.removeEventListener("selectionchange", clearGoalTextSelection);
     };
-  }, []);
+  }, [goalDragMode]);
 
   const applyDragEdgeScroll = (clientY: number) => {
     const edgeThreshold = 90;
