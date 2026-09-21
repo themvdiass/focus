@@ -1,4 +1,4 @@
-const CACHE_NAME = 'focus-shell-v2'
+const CACHE_NAME = 'focus-shell-v3'
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './manifest.json', './icon.jpg']
 
 self.addEventListener('install', (event) => {
@@ -7,7 +7,15 @@ self.addEventListener('install', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
+        cacheNames
+          .filter((cacheName) => cacheName !== CACHE_NAME)
+          .map((cacheName) => caches.delete(cacheName)),
+      ),
+    ).then(() => self.clients.claim()),
+  )
 })
 
 self.addEventListener('fetch', (event) => {
